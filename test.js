@@ -99,4 +99,35 @@ describe('Storage', function () {
       assume(storage.read(storage.file())).is.a('object');
     });
   });
+
+  describe('#allow', function () {
+    it('adds has multiple interfaces', function () {
+      assume(storage.allowed.length).equals(0);
+      assume(storage.allow('foo')).equals(storage);
+
+      assume(storage.allowed.length).equals(1);
+      assume(storage.allowed[0]).equals(storage.prefix +'foo');
+
+      storage.allow(['bar', 'baz']);
+      assume(storage.allowed.length).equals(3);
+      assume(storage.allowed[1]).equals(storage.prefix +'bar');
+      assume(storage.allowed[2]).equals(storage.prefix +'baz');
+
+      storage.allow('another', 'arg');
+      assume(storage.allowed.length).equals(5);
+      assume(storage.allowed[3]).equals(storage.prefix +'another');
+      assume(storage.allowed[4]).equals(storage.prefix +'arg');
+    });
+  });
+
+  describe('#destroy', function () {
+    it('return true on the first execution', function () {
+      assume(storage.destroy()).equals(true);
+    });
+
+    it('return true on the second execution', function () {
+      assume(storage.destroy()).equals(true);
+      assume(storage.destroy()).equals(false);
+    });
+  });
 });

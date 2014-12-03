@@ -241,6 +241,7 @@ Storage.readable('read', function read(file) {
  * @api public
  */
 Storage.readable('remove', function remove() {
+  if (!this.data) return this;
 
   try { fs.unlinkSync(this.file()); }
   catch (e) {}
