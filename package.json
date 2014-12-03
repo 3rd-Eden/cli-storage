@@ -1,7 +1,7 @@
 {
   "name": "cli-storage",
   "version": "0.0.0",
-  "description": "Configuration storage for command line applications",
+  "description": "Secure configuration storage for command line applications",
   "main": "index.js",
   "scripts": {
     "test": "mocha --reporter spec --ui bdd test.js",
@@ -35,7 +35,6 @@
     "pre-commit": "0.0.x"
   },
   "dependencies": {
-    "argh": "0.1.x",
     "fusing": "0.4.x"
   }
 }
