@@ -171,7 +171,6 @@ Storage.readable('save', function save() {
   var allowed = this.allowed
     , data = this.data;
 
-  if (!Object.keys(data).length) return this;
   if (!allowed.length) allowed = Object.keys(data);
 
   //
@@ -259,8 +258,6 @@ Storage.readable('remove', function remove() {
  */
 Storage.readable('destroy', function destroy() {
   if (!this.data) return false;
-
-  this.save();
 
   'data defaults cipher home passphrase prefix allowed parsers'.split(' ')
   .forEach(function nuke(key) {
