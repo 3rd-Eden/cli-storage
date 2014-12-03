@@ -1,7 +1,7 @@
 'use strict';
 
 var argv = require('argh').argv
-  , crypto = require('crypto')
+  , Cipher = require('./vault')
   , fuse = require('fusing')
   , path = require('path')
   , fs = require('fs')
@@ -16,20 +16,22 @@ var argv = require('argh').argv
  * - prefix: Key prefix to prevent potential dictionary attacks.
  * - home: The location of the user's home directory.
  * - filename: Configuration file name.
+ * - algorithm: Cipher algorithm to secure the config.
  *
  * @constructor
  * @param {String} name The name of the local cache.
  * @param {Object} options Additional configuration.
  * @api public
  */
-function LocalStorage(name, options) {
-  if (!(this instanceof LocalStorage)) return new LocalStorage(name, options);
+function Storage(name, options) {
+  if (!(this instanceof Storage)) return new Storage(name, options);
 
   this.fuse();
 
   this.home = options.home || process.env.HOME || process.env.USERPROFILE;
   this.passphrase = options.password || this.ssh() || os.hostname();
   this.filename = options.filename || '.'+ name;
+  this.cipher = new Cipher(this.passphrase);
   this.prefix = options.prefix || '$';
 
   this.defaults = {};
@@ -39,14 +41,14 @@ function LocalStorage(name, options) {
   // Inherit our default parsers.
   //
   this.parsers = Object.create(null);
-  for (var key in LocalStorage.parsers) {
-    this.parsers[key] = LocalStorage.parsers[key];
+  for (var key in Storage.parsers) {
+    this.parsers[key] = Storage.parsers[key];
   }
 
   this.load();
 }
 
-fuse(LocalStorage);
+fuse(Storage);
 
 /**
  * Prefix the key to prevent properties from overriding build-in methods and
@@ -56,7 +58,7 @@ fuse(LocalStorage);
  * @returns {String} Prefixed key.
  * @api private
  */
-LocalStorage.readable('key', function key(name) {
+Storage.readable('key', function key(name) {
   return this.prefix + name;
 });
 
@@ -67,7 +69,7 @@ LocalStorage.readable('key', function key(name) {
  * @returns {String} Private ssh key.
  * @api private
  */
-LocalStorage.readable('ssh', function ssh() {
+Storage.readable('ssh', function ssh() {
   var key = path.join(this.home, '.ssh', 'id_rsa');
 
   if (!fs.existsSync(key)) return '';
@@ -81,7 +83,7 @@ LocalStorage.readable('ssh', function ssh() {
  * @returns {String} Location of the file.
  * @api private
  */
-LocalStorage.readable('file', function file() {
+Storage.readable('file', function file() {
   var dir = process.cwd()
     , location;
 
@@ -97,13 +99,30 @@ LocalStorage.readable('file', function file() {
 });
 
 /**
+ * Add a new item to the storage file.
+ *
+ * @param {String} key The key we store the value on.
+ * @param {Mixed} data The value that is stored.
+ * @returns {Storage}
+ * @api public
+ */
+Storage.readable('set', function set(key, data) {
+  if (key in this.parsers && data) {
+    data = this.parsers[key].call(this, 'set', data);
+  }
+
+  this.data[this.key(key)] = data;
+  return this.save();
+});
+
+/**
  * Get a value out of our configuration set.
  *
  * @param {String} key The key we search for.
  * @returns {Mixed} Stored data.
  * @api public
  */
-LocalStorage.readable('get', function get(key) {
+Storage.readable('get', function get(key) {
   var data = this.data[this.key(key)];
 
   if (key in this.parsers && data) {
@@ -114,69 +133,34 @@ LocalStorage.readable('get', function get(key) {
 });
 
 /**
- * Same as get, but it renders the value suitable for CLI. It can be that
- * certain values need to be masked.
- *
- * @param {String} key The key we search for.
- * @returns {String} CLI output.
- * @api public
- */
-LocalStorage.readable('render', function render(key) {
-  var data = this.get(key);
-
-  if (key in this.parsers && data) {
-    data = this.parsers[key].call(this, 'render', data);
-  }
-
-  return (data || '').toString();
-});
-
-/**
- * Add a new item to the storage file.
- *
- * @param {String} key The key we store the value on.
- * @param {Mixed} data The value that is stored.
- * @returns {LocalStorage}
- * @api public
- */
-LocalStorage.readable('set', function set(key, data) {
-  if (key in this.parsers && data) {
-    data = this.parsers[key].call(this, 'set', data);
-  }
-
-  this.data[this.key(key)] = data;
-  return this.save();
-});
-
-/**
  * Save the data to disk, if we have any.
  *
- * @returns {LocalStorage}
+ * @returns {Storage}
  * @api private
  */
-LocalStorage.readable('save', function save() {
+Storage.readable('save', function save() {
   var allowed = this.allowed
-    , data = this.data
-    , store = this;
+    , data = this.data;
 
   if (!Object.keys(data).length) return this;
   if (!allowed.length) allowed = Object.keys(data);
+  else allowed = allowed.map(function prefix(key) {
+    return this.store.key(key);
+  }, this);
 
-  fs.writeFileSync(
-    this.file(),
-    JSON.stringify(allowed.reduce(function reduce(memo, key) {
-      //
-      // Process the keys as the `allowed` array is an unprocessed array of keys.
-      //
-      key = store.key(key);
+  //
+  // Make sure that we only store the keys that we're allowed to store as we're
+  // merging in the CLI argv.
+  //
+  data = JSON.stringify(allowed.reduce(function reduce(memo, key) {
+    if (key in data) {
+      memo[key] = data[key];
+    }
 
-      if (key in data) {
-        memo[key] = data[key];
-      }
+    return memo;
+  }, {}), 2);
 
-      return memo;
-    }, {}), 2)
-  );
+  fs.writeFileSync(this.file(), this.cipher.encrypt(data), 'utf-8');
 
   return this;
 });
@@ -184,10 +168,10 @@ LocalStorage.readable('save', function save() {
 /**
  * Load the configuration file that was stored on our disk.
  *
- * @returns {LocalStorage}
+ * @returns {Storage}
  * @api private
  */
-LocalStorage.readable('load', function load() {
+Storage.readable('load', function load() {
   var defaults = this.defaults
     , store = this
     , data = {};
@@ -222,18 +206,29 @@ LocalStorage.readable('load', function load() {
  * @returns {Object} The parsed JSON.
  * @api public
  */
-LocalStorage.readable('read', function read(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf-8'));
+Storage.readable('read', function read(file) {
+  var cipher, data;
+
+  try { data = fs.readFileSync(file, 'utf-8'); }
+  catch (e) { return {}; }
+
+  try { return JSON.parse(data); }
+  catch (e) {}
+
+  try { return JSON.parse(this.cipher.decrypt(data)); }
+  catch (e) {}
+
+  return {};
 });
 
 /**
  * Remove an item from the storage.
  *
  * @param {String} key The key we want to destroy.
- * @returns {LocalStorage}
+ * @returns {Storage}
  * @api public
  */
-LocalStorage.readable('del', function del(key) {
+Storage.readable('del', function del(key) {
   delete this.data[this.key(key)];
 
   return this.save();
@@ -242,10 +237,10 @@ LocalStorage.readable('del', function del(key) {
 /**
  * Completely destroy our cache and nuke the file on disk.
  *
- * @returns {LocalStorage}
+ * @returns {Storage}
  * @api public
  */
-LocalStorage.readable('destroy', function destroy() {
+Storage.readable('destroy', function destroy() {
   this.data = {};
 
   try { fs.unlinkSync(this.file()); }
@@ -260,44 +255,9 @@ LocalStorage.readable('destroy', function destroy() {
  * @type {Object}
  * @public
  */
-LocalStorage.parsers = {
-  /**
-   * Encode and decode passwords.
-   *
-   * @param {String} method Method name.
-   * @param {String} data Resolved data.
-   * @returns {String} Encoded or decoded password.
-   * @api private
-   */
-  password: function password(method, data) {
-    var algorithm = this.get('algorithm') || 'rc4'
-      , cipher;
-
-    switch (method) {
-      case 'get':
-        cipher = crypto.createCipher(algorithm, this.passphrase);
-        data = cipher.update(data, 'base64', 'ascii');
-        data += cipher.final('ascii');
-      break;
-
-      case 'set':
-        cipher = crypto.createDecipher(algorithm, this.passphrase);
-        data = cipher.update(data, 'ascii', 'base64');
-        data += cipher.final('base64');
-      break;
-
-      case 'render':
-        if (data) {
-          data = (new Array(10)).join('*');
-        }
-      break;
-    }
-
-    return data;
-  }
-};
+Storage.parsers = {};
 
 //
 // Expose the module.
 //
-module.exports = LocalStorage;
+module.exports = Storage;
