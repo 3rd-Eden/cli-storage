@@ -1,7 +1,6 @@
 'use strict';
 
-var argv = require('argh').argv
-  , Cipher = require('./vault')
+var Cipher = require('./vault')
   , fuse = require('fusing')
   , path = require('path')
   , fs = require('fs')
@@ -26,15 +25,13 @@ var argv = require('argh').argv
 function Storage(name, options) {
   if (!(this instanceof Storage)) return new Storage(name, options);
 
-  this.fuse();
-
   this.home = options.home || process.env.HOME || process.env.USERPROFILE;
   this.passphrase = options.password || this.ssh() || os.hostname();
   this.filename = options.filename || '.'+ name;
   this.cipher = new Cipher(this.passphrase);
+  this.defaults = options.defaults || {};
   this.prefix = options.prefix || '$';
 
-  this.defaults = {};
   this.allowed = [];
 
   //
@@ -60,6 +57,25 @@ fuse(Storage);
  */
 Storage.readable('key', function key(name) {
   return this.prefix + name;
+});
+
+/**
+ * White list the properties that.
+ *
+ * @returns {Storage}
+ * @api public
+ */
+Storage.readable('allow', function whitelist(arg) {
+  var args;
+
+  if (Array.isArray(arg)) args = arg;
+  else args = Array.prototype.slice.call(arguments, 0);
+
+  Array.prototype.push.apply(this.allowed, args.map(function allow(key) {
+    return this.key(key);
+  }, this));
+
+  return this;
 });
 
 /**
@@ -133,6 +149,19 @@ Storage.readable('get', function get(key) {
 });
 
 /**
+ * Remove an item from the storage.
+ *
+ * @param {String} key The key we want to destroy.
+ * @returns {Storage}
+ * @api public
+ */
+Storage.readable('del', function del(key) {
+  delete this.data[this.key(key)];
+
+  return this.save();
+});
+
+/**
  * Save the data to disk, if we have any.
  *
  * @returns {Storage}
@@ -144,9 +173,6 @@ Storage.readable('save', function save() {
 
   if (!Object.keys(data).length) return this;
   if (!allowed.length) allowed = Object.keys(data);
-  else allowed = allowed.map(function prefix(key) {
-    return this.store.key(key);
-  }, this);
 
   //
   // Make sure that we only store the keys that we're allowed to store as we're
@@ -169,7 +195,7 @@ Storage.readable('save', function save() {
  * Load the configuration file that was stored on our disk.
  *
  * @returns {Storage}
- * @api private
+ * @api public
  */
 Storage.readable('load', function load() {
   var defaults = this.defaults
@@ -183,18 +209,6 @@ Storage.readable('load', function load() {
     memo[store.key(key)] = defaults[key];
     return memo;
   }, {}), data || {});
-
-  //
-  // Merge in the argv's so we can override configuration values using CLI
-  // flags. This can be useful if you temporary want to force an argument.
-  //
-  this.data = this.merge(this.data, Object.keys(argv).filter(function filter(key) {
-    return key !== 'argv';
-  }).reduce(function reduce(data, key) {
-    data[store.key(key)] = argv[key];
-
-    return data;
-  }, {}));
 
   return this;
 });
@@ -222,31 +236,38 @@ Storage.readable('read', function read(file) {
 });
 
 /**
- * Remove an item from the storage.
- *
- * @param {String} key The key we want to destroy.
- * @returns {Storage}
- * @api public
- */
-Storage.readable('del', function del(key) {
-  delete this.data[this.key(key)];
-
-  return this.save();
-});
-
-/**
- * Completely destroy our cache and nuke the file on disk.
+ * Completely remove our cache and nuke the file on disk.
  *
  * @returns {Storage}
  * @api public
  */
-Storage.readable('destroy', function destroy() {
-  this.data = {};
+Storage.readable('remove', function remove() {
 
   try { fs.unlinkSync(this.file()); }
   catch (e) {}
 
+  this.load();
+
   return this;
+});
+
+/**
+ * Destroy the instance release all of it's references and gathered data.
+ *
+ * @returns {Boolean}
+ * @api public
+ */
+Storage.readable('destroy', function destroy() {
+  if (!this.data) return false;
+
+  this.save();
+
+  'data defaults cipher home passphrase prefix allowed parsers'.split(' ')
+  .forEach(function nuke(key) {
+    this[key] = null;
+  }, this);
+
+  return true;
 });
 
 /**
