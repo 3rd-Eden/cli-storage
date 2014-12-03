@@ -14,7 +14,7 @@ describe('Storage', function () {
   });
 
   afterEach(function () {
-    storage.destroy();
+    storage.remove().destroy();
   });
 
   it('can be initialized without new keyword', function () {
@@ -31,7 +31,7 @@ describe('Storage', function () {
     });
 
     it('applies a custom specified prefix', function () {
-      storage.destroy();
+      storage.remove().destroy();
       storage = new Storage('test-storage', { prefix: 'adfadf' });
 
       var key = 'fadfadfasdfadsafsdfadsfa'
