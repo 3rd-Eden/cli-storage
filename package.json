@@ -1,17 +1,31 @@
 {
   "name": "cli-storage",
-  "version": "0.0.1",
-  "description": "Secure configuration storage for command line applications",
-  "main": "index.js",
+  "version": "1.0.0",
+  "description": "Private JSON storage with native key protection and process-safe leases for command line applications",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.9"
+  },
   "scripts": {
-    "test": "mocha --reporter spec --ui bdd test.js",
-    "watch": "mocha --watch --reporter spec --ui bdd test.js",
-    "coverage": "istanbul cover -x vault.js ./node_modules/.bin/_mocha -- --reporter spec --ui bdd test.js",
-    "test-travis": "istanbul cover -x vault.js node_modules/.bin/_mocha --report lcovonly -- --reporter spec --ui bdd test.js"
+    "test": "node --test test/*.test.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/observing/cli-storage"
+    "url": "https://github.com/3rd-Eden/cli-storage.git"
   },
   "keywords": [
     "cli",
@@ -25,16 +39,19 @@
   "author": "Arnout Kazemier",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/observing/cli-storage/issues"
+    "url": "https://github.com/3rd-Eden/cli-storage/issues"
   },
-  "homepage": "https://github.com/observing/cli-storage",
-  "devDependencies": {
-    "assume": "~1.5.0",
-    "istanbul": "~0.4.5",
-    "mocha": "~3.1.2",
-    "pre-commit": "~1.2.0"
-  },
+  "homepage": "https://github.com/3rd-Eden/cli-storage",
   "dependencies": {
-    "fusing": "~1.0.0"
-  }
+    "env-paths": "^4.0.0",
+    "proper-lockfile": "^4.1.2",
+    "write-file-atomic": "^7.0.0"
+  },
+  "optionalDependencies": {
+    "@napi-rs/keyring": "^2.1.2"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "types": "./index.d.ts"
 }
