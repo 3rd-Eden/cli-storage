@@ -119,29 +119,29 @@ The class signatures are `constructor(options: StorageOptions)`, `get(key: strin
 
 | Option | Type | Default | Contract |
 | --- | --- | --- | --- |
-| `namespace` | Nonempty string | Required | Application-owned identity; distinct namespaces are isolated. |
-| `directory` | Nonempty string | Platform data root | Root containing hashed namespace directories. Existing POSIX root must already be private; Windows ACL requirements are described above. |
+| `namespace` | Nonempty well-formed Unicode string | Required | Application-owned identity; distinct namespaces are isolated. |
+| `directory` | Nonempty well-formed Unicode string | Platform data root | Root containing hashed namespace directories. Existing POSIX root must already be private; Windows ACL requirements are described above. |
 | `backend` | `'auto' \| 'native' \| 'file'` | `'auto'` | Preference used to initialize a fresh namespace; explicit mismatch fails for existing data. |
 
 Returns a `Storage` instance. It performs no I/O and throws `ESTORAGE_OPTIONS` for invalid options. Constructor options are runtime values, not keys added to application or MCP configuration files.
 
 ### `await store.get(key)`
 
-`key` is a nonempty string. Resolves to a fresh parsed JSON value or `undefined` when the record is absent. It writes nothing and never interprets corruption or denied access as absence. It may reject with key, access, corruption, backend, or native errors.
+`key` is a nonempty well-formed Unicode string. Resolves to a fresh parsed JSON value or `undefined` when the record is absent. It writes nothing and never interprets corruption or denied access as absence. It may reject with key, access, corruption, backend, or native errors.
 
 ### `await store.set(key, value)`
 
-`key` is a nonempty string. `value` supports `null`, booleans, finite numbers, strings, dense arrays, and plain objects containing the same. Plain objects may have a null prototype. All properties must be enumerable data properties. Unsupported values, cycles, sparse/decorated arrays, symbol properties, getters/setters, non-enumerable properties, class instances, `undefined`, functions, symbols, `bigint`, `NaN`, and infinities are rejected with `ESTORAGE_VALUE`. Inputs are snapshotted before asynchronous work; later caller mutations do not change the stored value. JSON number serialization normalizes negative zero to zero.
+`key` is a nonempty well-formed Unicode string. `value` supports `null`, booleans, finite numbers, strings, dense arrays, and plain objects containing the same. Plain objects may have a null prototype. All properties must be enumerable data properties. Unsupported values, cycles, sparse/decorated arrays, symbol properties, getters/setters, non-enumerable properties, class instances, `undefined`, functions, symbols, `bigint`, `NaN`, and infinities are rejected with `ESTORAGE_VALUE`. Inputs are snapshotted before asynchronous work; later caller mutations do not change the stored value. JSON number serialization normalizes negative zero to zero.
 
 Resolves to `undefined` after atomic replacement. It acquires the record lock and initializes a namespace on its first write. It may reject with validation, lock, access, corruption, backend, or native errors. Existing corrupt records are preserved for recovery.
 
 ### `await store.delete(key)`
 
-`key` is a nonempty string. Resolves to `true` when a record was removed and `false` if it was absent. It acquires the record lock and may create lock directories even when a record is absent. Namespace metadata and the native namespace key remain. It may reject with key, lock, access, corruption, backend, or native errors.
+`key` is a nonempty well-formed Unicode string. Resolves to `true` when a record was removed and `false` if it was absent. It acquires the record lock and may create lock directories even when a record is absent. Namespace metadata and the native namespace key remain. It may reject with key, lock, access, corruption, backend, or native errors.
 
 ### `await store.lock(key, work, { signal?, timeout? }?)`
 
-`key` is a nonempty string; `work` is a callback receiving one frozen bound lease. `signal` is an optional `AbortSignal`; `timeout` is an optional finite nonnegative number of milliseconds. Both apply only to acquiring the lock. The default acquisition wait has no deadline. Resolves to the awaited callback result after initiated lease operations drain and the lock releases. It may reject with key/options, acquisition, compromise, access, lease, record/native errors, or the callback's own exception.
+`key` is a nonempty well-formed Unicode string; `work` is a callback receiving one frozen bound lease. `signal` is an optional `AbortSignal`; `timeout` is an optional finite nonnegative number of milliseconds. Both apply only to acquiring the lock, including asynchronous filesystem lock creation. The default acquisition wait has no deadline. Resolves to the awaited callback result after initiated lease operations drain and the lock releases. It may reject with key/options, acquisition, compromise, access, lease, record/native errors, or the callback's own exception.
 
 | Bound lease method | Arguments | Result |
 | --- | --- | --- |
@@ -153,7 +153,7 @@ Lease methods never reacquire the key's lock. They share the corresponding publi
 
 ### `await store.status(key?)`
 
-`key` is an optional nonempty string. Resolves to the following plain object without writing files, acquiring locks, loading native bindings, or querying native credentials. It validates filesystem entries, metadata, and the optional envelope. It does not decrypt a native record, so it cannot authenticate its ciphertext or prove that its native key is available.
+`key` is an optional nonempty well-formed Unicode string. Resolves to the following plain object without writing files, acquiring locks, loading native bindings, or querying native credentials. It validates filesystem entries, metadata, and the optional envelope. It does not decrypt a native record, so it cannot authenticate its ciphertext or prove that its native key is available.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -185,7 +185,7 @@ try {
 | Code and reference | Meaning and response |
 | --- | --- |
 | <a id="estorage-options"></a>`ESTORAGE_OPTIONS` / `estorage-options` | Invalid constructor or lock options. Correct the caller. |
-| <a id="estorage-key"></a>`ESTORAGE_KEY` / `estorage-key` | Empty or non-string record key. Supply a stable nonempty string. |
+| <a id="estorage-key"></a>`ESTORAGE_KEY` / `estorage-key` | Empty, non-string, or malformed Unicode record key. Supply a stable nonempty string containing well-formed Unicode. |
 | <a id="estorage-value"></a>`ESTORAGE_VALUE` / `estorage-value` | Unsupported JSON data. Convert explicitly before writing. |
 | <a id="estorage-access"></a>`ESTORAGE_ACCESS` / `estorage-access` | Filesystem I/O, ownership, entry type, or permissions failure. Restore private access; no silent chmod or data replacement occurs. |
 | <a id="estorage-corrupt"></a>`ESTORAGE_CORRUPT` / `estorage-corrupt` | Invalid metadata/envelope/JSON/key encoding, orphaned records, unsupported version, or failed authenticated decryption. Restore known-good data and native keys. |

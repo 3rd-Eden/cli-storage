@@ -66,6 +66,9 @@ function identity(value, method, code = 'ESTORAGE_KEY') {
   if (typeof value !== 'string' || value.length === 0) {
     throw new StorageError(code, method, 'Expected a nonempty string.');
   }
+  if (!value.isWellFormed()) {
+    throw new StorageError(code, method, 'Expected a string containing well-formed Unicode.');
+  }
 }
 
 /**
@@ -671,14 +674,24 @@ export class Storage {
     while (true) {
       if (options.signal?.aborted) throw new StorageError('ESTORAGE_ABORTED', 'lock', 'Lock acquisition was aborted.', options.signal.reason);
       try {
-        return await locking.lock(join(this.#directory, name), {
+        const release = await locking.lock(join(this.#directory, name), {
           realpath: false,
           stale: 5000,
           update: 1000,
           retries: 0,
           onCompromised: compromised,
         });
+        if (options.signal?.aborted) {
+          try {
+            await release();
+          } catch (cause) {
+            throw new StorageError('ESTORAGE_ABORTED', 'lock', 'Lock acquisition was aborted, but the acquired lock could not be released.', cause);
+          }
+          throw new StorageError('ESTORAGE_ABORTED', 'lock', 'Lock acquisition was aborted.', options.signal.reason);
+        }
+        return release;
       } catch (cause) {
+        if (cause instanceof StorageError) throw cause;
         if (cause.code !== 'ELOCKED') throw new StorageError('ESTORAGE_ACCESS', 'lock', 'Could not acquire the private record lock.', cause);
         if (performance.now() >= deadline) throw new StorageError('ESTORAGE_TIMEOUT', 'lock', 'Timed out waiting for the record lock.', cause);
       }

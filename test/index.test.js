@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -57,6 +58,34 @@ describe('cli-storage', /**
        */ function backend() {
         new Storage({ namespace: 'example', backend: 'unknown' });
       }, { code: 'ESTORAGE_OPTIONS' });
+    });
+
+    it('rejects malformed Unicode identities before filesystem access', /**
+     * Reject malformed Unicode identities before they can alias hashed paths.
+     * @returns {Promise<void>} Completed identity validation assertions.
+     */ async function malformedIdentity() {
+      const malformed = String.fromCharCode(0xd800);
+      assert.throws(/**
+       * Reject a malformed namespace without creating its directory.
+       * @returns {void} Constructor result.
+       */ function namespace() {
+        new Storage({ namespace: malformed, directory });
+      }, { code: 'ESTORAGE_OPTIONS' });
+
+      const store = new Storage({ namespace: 'example', directory, backend: 'file' });
+      await assert.rejects(store.get(malformed), { code: 'ESTORAGE_KEY' });
+      await assert.rejects(store.set(malformed, 'value'), { code: 'ESTORAGE_KEY' });
+      await assert.rejects(store.delete(malformed), { code: 'ESTORAGE_KEY' });
+      await assert.rejects(store.status(malformed), { code: 'ESTORAGE_KEY' });
+      await assert.rejects(store.lock(malformed, /**
+       * Fail if malformed input reaches the callback.
+       * @returns {void} Never reached.
+       */ function forbidden() {
+        assert.fail('malformed identity reached the lock callback');
+      }), { code: 'ESTORAGE_KEY' });
+      assert.deepEqual(await readdir(directory), []);
+      await store.set('\ufffd', 'replacement');
+      assert.equal(await store.get('\ufffd'), 'replacement');
     });
   });
 
@@ -295,6 +324,52 @@ describe('cli-storage', /**
       gate.resolve();
       await holding;
       assert.equal(await store.get('record'), 'holder');
+    });
+
+    it('releases an acquired lock when cancellation races acquisition completion', /**
+     * Reject cancellation that arrives during asynchronous lock acquisition.
+     * @returns {Promise<void>} Completed cancellation and cleanup assertions.
+     */ async function acquiredCancellation() {
+      const store = new Storage({ namespace: 'example', directory, backend: 'file' });
+      await store.set('seed', 'value');
+      const status = await store.status();
+      const controller = new AbortController();
+      let called = false;
+      let watching = true;
+      const pending = store.lock('record', /**
+       * Record whether the cancelled lock reached user work.
+       * @returns {void} Callback result.
+       */ function canceled(lease) {
+        called = true;
+        return lease.set('forbidden');
+      }, { signal: controller.signal });
+      /**
+       * Abort after the real lock directory exists but before acquisition finishes.
+       * @returns {void} Completes once the lock exists.
+       */
+      function cancelAcquisition() {
+        if (!watching) return;
+        if (readdirSync(status.directory).some(/**
+         * Identify the acquired lock directory.
+         * @param {string} name Directory entry.
+         * @returns {boolean} Whether the entry represents a lock.
+         */ function lockDirectory(name) { return name.endsWith('.lock'); })) {
+          watching = false;
+          controller.abort();
+          return;
+        }
+        setImmediate(cancelAcquisition);
+      }
+      setImmediate(cancelAcquisition);
+
+      await assert.rejects(pending, { code: 'ESTORAGE_ABORTED' });
+      watching = false;
+      assert.equal(called, false);
+      assert.deepEqual(readdirSync(status.directory).filter(/**
+       * Identify leftover lock directories.
+       * @param {string} name Directory entry.
+       * @returns {boolean} Whether the entry represents a lock.
+       */ function lockDirectory(name) { return name.endsWith('.lock'); }), []);
     });
   });
 });
