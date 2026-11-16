@@ -671,8 +671,15 @@ export class Storage {
      * @returns {void}
      */
     function compromised(cause) { state.compromised = cause; }
+    let first = true;
+    let failure;
     while (true) {
       if (options.signal?.aborted) throw new StorageError('ESTORAGE_ABORTED', 'lock', 'Lock acquisition was aborted.', options.signal.reason);
+      // Keep the first attempt for timeout: 0, but never retry after a polling delay crosses the deadline.
+      if (!first && performance.now() >= deadline) {
+        throw new StorageError('ESTORAGE_TIMEOUT', 'lock', 'Timed out waiting for the record lock.', failure);
+      }
+      first = false;
       try {
         const release = await locking.lock(join(this.#directory, name), {
           realpath: false,
@@ -693,6 +700,7 @@ export class Storage {
       } catch (cause) {
         if (cause instanceof StorageError) throw cause;
         if (cause.code !== 'ELOCKED') throw new StorageError('ESTORAGE_ACCESS', 'lock', 'Could not acquire the private record lock.', cause);
+        failure = cause;
         if (performance.now() >= deadline) throw new StorageError('ESTORAGE_TIMEOUT', 'lock', 'Timed out waiting for the record lock.', cause);
       }
       try {

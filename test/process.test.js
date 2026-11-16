@@ -103,6 +103,31 @@ describe('cli-storage', /**
       assert.equal(await store.get('counter'), 32);
     });
 
+    it('times out instead of acquiring after a polling delay passes the deadline', /**
+     * Keep a real child-process lease past the waiter's deadline, then release it while the waiter is delayed.
+     * @returns {Promise<void>} Completed timeout and persisted-value assertions.
+     */ async function delayedRetry() {
+      const store = new Storage({ namespace: 'process', directory, backend: 'file' });
+      const child = fork(fixture, ['hold', directory, 'process', 'deadline', '100'], { silent: true });
+      children.push(child);
+      const ended = completed(child);
+      await once(child, 'message');
+      const started = performance.now();
+      const pending = store.lock('deadline', /**
+       * Fail if the expired waiter reaches user work.
+       * @returns {void} Never reached after the timeout.
+       */ function forbidden() {
+        assert.fail('expired waiter acquired the lock');
+      }, { timeout: 40 });
+
+      await pause(30);
+      while (performance.now() < started + 120) {}
+
+      await assert.rejects(pending, { code: 'ESTORAGE_TIMEOUT' });
+      await ended;
+      assert.equal(await store.get('deadline'), 'finished');
+    });
+
     it('heartbeats across the stale interval and recovers a killed holder', { timeout: 20000 }, /**
      * Heartbeats across the stale interval and recovers a killed holder.
      * @returns {Promise<void>} Callback result.
