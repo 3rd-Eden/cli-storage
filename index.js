@@ -675,8 +675,8 @@ export class Storage {
     let failure;
     while (true) {
       if (options.signal?.aborted) throw new StorageError('ESTORAGE_ABORTED', 'lock', 'Lock acquisition was aborted.', options.signal.reason);
-      // Keep the first attempt for timeout: 0, but never retry after a polling delay crosses the deadline.
-      if (!first && performance.now() >= deadline) {
+      // A zero timeout still gets one immediate attempt; positive deadlines include directory setup.
+      if (performance.now() >= deadline && (options.timeout !== 0 || !first)) {
         throw new StorageError('ESTORAGE_TIMEOUT', 'lock', 'Timed out waiting for the record lock.', failure);
       }
       first = false;
